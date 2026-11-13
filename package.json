@@ -1,0 +1,16 @@
+{
+  "name": "travel-agent",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p worker/tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/core.test.js .test-dist/tests/worker.test.js",
+    "build": "tsc -p tsconfig.json && node scripts/build.mjs",
+    "dev": "npm run build && node scripts/serve.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.8.3"
+  }
+}
