@@ -3,7 +3,6 @@
 !.env.example
 .dev.vars
 node_modules/
-dist/
 .test-dist/
 .build-temp/
 .wrangler/

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f6f3">
+    <meta name="description" content="Találj közvetlen úti célokat a klíma- és repülési idő preferenciáid alapján.">
+    <meta name="travel-agent-api" content="https://travel-agent-api.satanadam.workers.dev">
+    <title>Travel Agent</title>
+    <link rel="stylesheet" href="./style.css">
+    <script type="module" src="./src/main.js"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="./" aria-label="Travel Agent kezdőlap">Travel Agent</a>
+      <p>Találj közvetlen úti célokat a saját klíma- és utazási preferenciáidhoz.</p>
+    </header>
+
+    <main>
+      <section class="search-panel" aria-labelledby="search-title">
+        <h1 id="search-title">Hová utazzak?</h1>
+        <form id="search-form">
+          <div class="form-grid">
+            <label class="field">
+              <span>Indulási repülőtér</span>
+              <select id="origin" name="from" required></select>
+            </label>
+            <label class="field">
+              <span>Utazás hónapja</span>
+              <select id="month" name="month" required></select>
+            </label>
+            <label class="field">
+              <span>Hőmérsékleti feltétel</span>
+              <select id="temperature-mode" name="temperatureMode">
+                <option value="range">Tartományon belül</option>
+                <option value="min">Legalább</option>
+                <option value="max">Legfeljebb</option>
+              </select>
+            </label>
+            <fieldset class="field temperature-field">
+              <legend>Hőmérséklet (°C)</legend>
+              <label class="temperature-input" id="minimum-wrap">
+                <span class="visually-hidden">Minimum hőmérséklet</span>
+                <input id="min-temp" name="minTemp" type="number" min="-40" max="55" step="0.5" value="18" inputmode="decimal">
+                <span>min</span>
+              </label>
+              <span class="temperature-separator" aria-hidden="true">–</span>
+              <label class="temperature-input" id="maximum-wrap">
+                <span class="visually-hidden">Maximum hőmérséklet</span>
+                <input id="max-temp" name="maxTemp" type="number" min="-40" max="55" step="0.5" value="24" inputmode="decimal">
+                <span>max</span>
+              </label>
+            </fieldset>
+            <label class="field">
+              <span>Hőmérsékleti mutató</span>
+              <select id="metric" name="metric">
+                <option value="mean">Átlagos napi középhőmérséklet</option>
+                <option value="max">Átlagos nappali maximum</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Max. repülési idő</span>
+              <select id="max-duration" name="maxFlightMinutes">
+                <option value="">Nincs korlát</option>
+              </select>
+            </label>
+            <fieldset class="field airline-field">
+              <legend>Légitársaság</legend>
+              <label><input type="checkbox" name="airlines" value="ryanair" checked> Ryanair</label>
+              <label><input type="checkbox" name="airlines" value="wizz" checked> Wizz Air</label>
+              <label><input type="checkbox" name="airlines" value="other"> Egyéb</label>
+            </fieldset>
+          </div>
+          <div class="form-actions">
+            <button class="primary-button" type="submit">Keresés</button>
+            <button class="secondary-button" id="refresh-button" type="button" title="Adatok frissítése a gyorsítótár megkerülésével">Adatok frissítése</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="results-section" aria-labelledby="results-title">
+        <div class="results-heading">
+          <div>
+            <h2 id="results-title">Úti célok</h2>
+            <p id="result-summary" aria-live="polite">Állítsd be a feltételeket, majd indíts keresést.</p>
+          </div>
+          <label class="sort-control">
+            <span>Rendezés</span>
+            <select id="sort-order" aria-label="Találatok rendezése">
+              <option value="temperature-asc">Hőmérséklet növekvő</option>
+              <option value="temperature-desc">Hőmérséklet csökkenő</option>
+              <option value="duration">Repülési idő</option>
+              <option value="city">Város</option>
+              <option value="country">Ország</option>
+            </select>
+          </label>
+        </div>
+        <output id="status-message" class="status-message" aria-live="polite"></output>
+        <div id="results" class="results-grid" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer>
+      <p>A hőmérsékletek többéves történelmi átlagok, nem időjárás-előrejelzések. A légitársaságok menetrendje változhat. Foglalás előtt ellenőrizd a járatot a légitársaságnál.</p>
+      <p class="data-note">A menetrend változhat. Foglalás előtt ellenőrizd a járatot a légitársaságnál.</p>
+    </footer>
+  </body>
+</html>
