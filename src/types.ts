@@ -9,7 +9,7 @@ export interface Airport {
 }
 
 export type DurationType = "scheduled" | "estimated" | "unknown";
-export type TemperatureMetric = "mean" | "max";
+export type TemperatureMetric = "mean" | "max" | "min";
 export type TemperatureMode = "min" | "max" | "range";
 
 export interface FlightRoute {
@@ -43,8 +43,9 @@ export interface SearchState {
 }
 
 export interface MonthlyClimate {
-  mean: number;
-  max: number;
+  mean: number | null;
+  max: number | null;
+  min: number | null;
   sampleCount: number;
 }
 

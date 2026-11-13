@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { FLIGHT_CACHE_TTL_MS, flightCacheKey, readFlightCache, writeFlightCache } from "../src/api.js";
 import { AIRLINE_GROUPS, selectedAirlineCodes } from "../src/airports.js";
-import { calculateMonthlyClimate, climateCacheKey, CLIMATE_TTL_MS, mapWithLimit, readClimateCache, writeClimateCache } from "../src/climate.js";
+import { calculateMonthlyClimate, climateCacheKey, CLIMATE_TTL_MS, fetchMonthlyClimateBatch, mapWithLimit, readClimateCache, writeClimateCache } from "../src/climate.js";
 import { deduplicateRoutes, durationForRoute, estimatedDurationMinutes, filterRoutesByAirline, filterRoutesByAirlineGroups, haversineDistanceKm, parseRoutesResponse } from "../src/flights.js";
 import { defaultSearch, durationMatches, parseSearchParams, serializeSearch, temperatureMatches } from "../src/state.js";
 import type { Airport, FlightRoute } from "../src/types.js";
@@ -27,13 +27,40 @@ test("monthly climate averages daily values for the requested month", () => {
   const result = calculateMonthlyClimate({
     time: ["2020-07-01", "2020-07-02", "2020-08-01"],
     temperature_2m_mean: [20, 22, 30],
-    temperature_2m_max: [25, 27, 35]
+    temperature_2m_max: [25, 27, 35],
+    temperature_2m_min: [10, 12, 15]
   }, 7);
-  assert.deepEqual(result, { mean: 21, max: 26, sampleCount: 2 });
+  assert.deepEqual(result, { mean: 21, max: 26, min: 11, sampleCount: 2 });
 });
 test("monthly climate ignores missing values and reports no result without samples", () => {
-  assert.deepEqual(calculateMonthlyClimate({ time: ["2020-01-01", "2020-01-02"], temperature_2m_mean: [null, 8], temperature_2m_max: [null, 10] }, 1), { mean: 8, max: 10, sampleCount: 1 });
+  assert.deepEqual(calculateMonthlyClimate({ time: ["2020-01-01", "2020-01-02"], temperature_2m_mean: [null, 8], temperature_2m_max: [null, 10], temperature_2m_min: [null, 2] }, 1), { mean: 8, max: 10, min: 2, sampleCount: 1 });
   assert.equal(calculateMonthlyClimate({ time: ["2020-01-01"], temperature_2m_mean: [null], temperature_2m_max: [null] }, 1), null);
+});
+test("monthly climate keeps available metrics when another series is missing", () => {
+  assert.deepEqual(calculateMonthlyClimate({ time: ["2020-02-01"], temperature_2m_mean: [4], temperature_2m_max: [null] }, 2), {
+    mean: 4, max: null, min: null, sampleCount: 1
+  });
+});
+test("Open-Meteo climate batch maps all temperatures to the requested airports", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    assert.equal(url.searchParams.get("latitude"), `${vie.latitude},${bud.latitude}`);
+    assert.equal(url.searchParams.get("longitude"), `${vie.longitude},${bud.longitude}`);
+    assert.equal(url.searchParams.get("timezone"), "auto");
+    assert.equal(url.searchParams.get("daily"), "temperature_2m_mean,temperature_2m_max,temperature_2m_min");
+    return new Response(JSON.stringify([
+      { daily: { time: ["2020-07-01"], temperature_2m_mean: [20], temperature_2m_max: [25], temperature_2m_min: [15] } },
+      { daily: { time: ["2020-07-01"], temperature_2m_mean: [22], temperature_2m_max: [28], temperature_2m_min: [17] } }
+    ]), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const result = await fetchMonthlyClimateBatch([vie, bud], 7);
+    assert.deepEqual(result.get("VIE"), { mean: 20, max: 25, min: 15, sampleCount: 1 });
+    assert.deepEqual(result.get("BUD"), { mean: 22, max: 28, min: 17, sampleCount: 1 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 test("deduplication groups one destination and removes repeated codeshares", () => {
   const grouped = deduplicateRoutes([route(), route(), route({ airlineIata: "W6" }), route({ arrivalIata: "BUD" })]);
@@ -86,7 +113,7 @@ test("climate cache expires after its TTL", () => {
   const values = new Map<string, string>();
   const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) };
   const key = climateCacheKey("VIE", 8);
-  const climate = { mean: 20, max: 25, sampleCount: 300 };
+  const climate = { mean: 20, max: 25, min: 15, sampleCount: 300 };
   writeClimateCache(storage, key, climate, 1000);
   assert.deepEqual(readClimateCache(storage, key, 1000 + CLIMATE_TTL_MS - 1), climate);
   assert.equal(readClimateCache(storage, key, 1000 + CLIMATE_TTL_MS), null);

@@ -17,12 +17,18 @@ export function formatDuration(minutes: number): string {
 export function sortResults(results: DestinationResult[], sort: string, metric: SearchState["metric"]): DestinationResult[] {
   const value = (result: DestinationResult) => result.climate[metric];
   return [...results].sort((a, b) => {
-    if (sort === "temperature-desc") return value(b) - value(a);
+    if (sort === "temperature-desc") return compareTemperature(value(b), value(a));
     if (sort === "duration") return a.durationMinutes - b.durationMinutes || a.airport.city.localeCompare(b.airport.city, "hu");
     if (sort === "city") return a.airport.city.localeCompare(b.airport.city, "hu");
     if (sort === "country") return a.airport.country.localeCompare(b.airport.country, "hu") || a.airport.city.localeCompare(b.airport.city, "hu");
-    return value(a) - value(b);
+    return compareTemperature(value(a), value(b));
   });
+}
+
+function compareTemperature(left: number | null, right: number | null): number {
+  if (left === null) return right === null ? 0 : 1;
+  if (right === null) return -1;
+  return left - right;
 }
 
 export function renderResults(container: HTMLElement, results: DestinationResult[], state: SearchState, sort: string): void {
@@ -50,7 +56,7 @@ export function renderResults(container: HTMLElement, results: DestinationResult
     const metrics = document.createElement("div");
     metrics.className = "metrics";
     metrics.append(
-      metricBlock(`${NUMBER_FORMATTER.format(result.climate[state.metric])} °C`, state.metric === "mean" ? `átlagos ${monthName(state.month)}i középhőmérséklet` : `átlagos ${monthName(state.month)}i nappali maximum`),
+      metricBlock(`${NUMBER_FORMATTER.format(result.climate[state.metric] ?? Number.NaN)} °C`, temperatureLabel(state.metric, state.month)),
       metricBlock(formatDuration(result.durationMinutes), result.durationType === "scheduled" ? "menetrend szerinti repülési idő" : "becsült repülési idő")
     );
     const meta = document.createElement("div");
@@ -87,4 +93,10 @@ function airlineLabel(code: string): string {
   if (code === "FR") return "Ryanair";
   if (["W6", "W9", "W4", "5W"].includes(code)) return "Wizz Air";
   return code;
+}
+
+function temperatureLabel(metric: SearchState["metric"], month: number): string {
+  if (metric === "mean") return `átlagos ${monthName(month)}i középhőmérséklet`;
+  if (metric === "min") return `átlagos ${monthName(month)}i napi minimum`;
+  return `átlagos ${monthName(month)}i nappali maximum`;
 }

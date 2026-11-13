@@ -1,5 +1,5 @@
 import { AIRPORTS, AIRPORT_BY_IATA } from "./airports.js";
-import { climateCacheKey, fetchMonthlyClimate, mapWithLimit, readClimateCache, writeClimateCache, CLIMATE_START_YEAR, CLIMATE_END_YEAR } from "./climate.js";
+import { climateCacheKey, fetchMonthlyClimateBatch, mapWithLimit, readClimateCache, writeClimateCache, CLIMATE_START_YEAR, CLIMATE_END_YEAR } from "./climate.js";
 import { getDestinations } from "./api.js";
 import { deduplicateRoutes, filterRoutesByAirlineGroups, routeDuration } from "./flights.js";
 import { formatDuration, monthName, renderResults } from "./render.js";
@@ -162,17 +162,49 @@ function getFlightCandidates(searchState, flightData) {
     }
     return candidates;
 }
-function loadCandidateClimates(candidates, searchState, refresh, signal) {
+async function loadCandidateClimates(candidates, searchState, refresh, signal) {
     const storage = safeStorage();
-    return mapWithLimit(candidates, 4, async (candidate) => {
+    const results = new Array(candidates.length);
+    const missing = findMissingClimate(candidates, searchState, refresh, storage, results);
+    const batches = chunkClimateCandidates(missing, 20);
+    const climateBatches = await mapWithLimit(batches, 2, async (batch) => fetchMonthlyClimateBatch(batch.map(({ candidate }) => candidate.airport), searchState.month, signal));
+    for (const [batchIndex, outcome] of climateBatches.entries()) {
+        applyClimateBatch(batches[batchIndex], outcome, results, storage, searchState.month);
+    }
+    return results;
+}
+function findMissingClimate(candidates, searchState, refresh, storage, results) {
+    const missing = [];
+    for (const [index, candidate] of candidates.entries()) {
         const key = climateCacheKey(candidate.airport.iata, searchState.month);
         const cached = refresh ? null : readClimateCache(storage, key);
         if (cached)
-            return { candidate, climate: cached };
-        const climate = await fetchMonthlyClimate(candidate.airport, searchState.month, signal);
-        writeClimateCache(storage, key, climate);
-        return { candidate, climate };
-    });
+            results[index] = { status: "fulfilled", value: { candidate, climate: cached } };
+        else
+            missing.push({ index, candidate });
+    }
+    return missing;
+}
+function chunkClimateCandidates(items, size) {
+    const batches = [];
+    for (let index = 0; index < items.length; index += size)
+        batches.push(items.slice(index, index + size));
+    return batches;
+}
+function applyClimateBatch(batch, outcome, results, storage, month) {
+    for (const item of batch) {
+        if (outcome.status === "rejected") {
+            results[item.index] = { status: "rejected", reason: outcome.reason };
+            continue;
+        }
+        const climate = outcome.value.get(item.candidate.airport.iata);
+        if (!climate) {
+            results[item.index] = { status: "rejected", reason: new Error("Ehhez a reptérhez nem érhető el klímaadat.") };
+            continue;
+        }
+        writeClimateCache(storage, climateCacheKey(item.candidate.airport.iata, month), climate);
+        results[item.index] = { status: "fulfilled", value: { candidate: item.candidate, climate } };
+    }
 }
 function collectClimateResults(outcomes, searchState) {
     const results = [];
@@ -185,7 +217,8 @@ function collectClimateResults(outcomes, searchState) {
             continue;
         }
         const { candidate, climate } = outcome.value;
-        if (!temperatureMatches(climate[searchState.metric], searchState))
+        const temperature = climate[searchState.metric];
+        if (temperature === null || !temperatureMatches(temperature, searchState))
             continue;
         results.push({
             airport: candidate.airport,

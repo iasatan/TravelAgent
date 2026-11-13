@@ -47,7 +47,7 @@ export function parseSearchParams(params: URLSearchParams, now = new Date()): Se
     minTemp,
     maxTemp,
     temperatureMode: temperatureMode === "min" || temperatureMode === "max" || temperatureMode === "range" ? temperatureMode as TemperatureMode : fallback.temperatureMode,
-    metric: metric === "max" || metric === "mean" ? metric as TemperatureMetric : fallback.metric,
+    metric: metric === "max" || metric === "min" || metric === "mean" ? metric as TemperatureMetric : fallback.metric,
     maxFlightMinutes: maxMinutes,
     airlines: rawAirlines === null ? fallback.airlines : [...new Set(airlines)]
   };

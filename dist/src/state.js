@@ -44,7 +44,7 @@ export function parseSearchParams(params, now = new Date()) {
         minTemp,
         maxTemp,
         temperatureMode: temperatureMode === "min" || temperatureMode === "max" || temperatureMode === "range" ? temperatureMode : fallback.temperatureMode,
-        metric: metric === "max" || metric === "mean" ? metric : fallback.metric,
+        metric: metric === "max" || metric === "min" || metric === "mean" ? metric : fallback.metric,
         maxFlightMinutes: maxMinutes,
         airlines: rawAirlines === null ? fallback.airlines : [...new Set(airlines)]
     };

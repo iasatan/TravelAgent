@@ -14,15 +14,22 @@ export function sortResults(results, sort, metric) {
     const value = (result) => result.climate[metric];
     return [...results].sort((a, b) => {
         if (sort === "temperature-desc")
-            return value(b) - value(a);
+            return compareTemperature(value(b), value(a));
         if (sort === "duration")
             return a.durationMinutes - b.durationMinutes || a.airport.city.localeCompare(b.airport.city, "hu");
         if (sort === "city")
             return a.airport.city.localeCompare(b.airport.city, "hu");
         if (sort === "country")
             return a.airport.country.localeCompare(b.airport.country, "hu") || a.airport.city.localeCompare(b.airport.city, "hu");
-        return value(a) - value(b);
+        return compareTemperature(value(a), value(b));
     });
+}
+function compareTemperature(left, right) {
+    if (left === null)
+        return right === null ? 0 : 1;
+    if (right === null)
+        return -1;
+    return left - right;
 }
 export function renderResults(container, results, state, sort) {
     container.replaceChildren();
@@ -48,7 +55,7 @@ export function renderResults(container, results, state, sort) {
         airport.textContent = `${result.airport.iata} · ${result.airport.name}`;
         const metrics = document.createElement("div");
         metrics.className = "metrics";
-        metrics.append(metricBlock(`${NUMBER_FORMATTER.format(result.climate[state.metric])} °C`, state.metric === "mean" ? `átlagos ${monthName(state.month)}i középhőmérséklet` : `átlagos ${monthName(state.month)}i nappali maximum`), metricBlock(formatDuration(result.durationMinutes), result.durationType === "scheduled" ? "menetrend szerinti repülési idő" : "becsült repülési idő"));
+        metrics.append(metricBlock(`${NUMBER_FORMATTER.format(result.climate[state.metric] ?? Number.NaN)} °C`, temperatureLabel(state.metric, state.month)), metricBlock(formatDuration(result.durationMinutes), result.durationType === "scheduled" ? "menetrend szerinti repülési idő" : "becsült repülési idő"));
         const meta = document.createElement("div");
         meta.className = "card-meta";
         for (const airline of result.airlines)
@@ -84,4 +91,11 @@ function airlineLabel(code) {
     if (["W6", "W9", "W4", "5W"].includes(code))
         return "Wizz Air";
     return code;
+}
+function temperatureLabel(metric, month) {
+    if (metric === "mean")
+        return `átlagos ${monthName(month)}i középhőmérséklet`;
+    if (metric === "min")
+        return `átlagos ${monthName(month)}i napi minimum`;
+    return `átlagos ${monthName(month)}i nappali maximum`;
 }
