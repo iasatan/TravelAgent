@@ -4,6 +4,8 @@ await rm("dist", { recursive: true, force: true });
 await mkdir("dist", { recursive: true });
 const html = await readFile("index.html", "utf8");
 await writeFile("dist/index.html", html.replace('src="./dist/src/main.js"', 'src="./src/main.js"'));
+const airportHtml = await readFile("airports.html", "utf8");
+await writeFile("dist/airports.html", airportHtml.replace('src="./dist/src/airports-page.js"', 'src="./src/airports-page.js"'));
 await cp("style.css", "dist/style.css");
 await cp(".build-temp/src", "dist/src", { recursive: true });
 await rm(".build-temp", { recursive: true, force: true });

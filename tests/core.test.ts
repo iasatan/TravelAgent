@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { FLIGHT_CACHE_TTL_MS, flightCacheKey, readFlightCache, writeFlightCache } from "../src/api.js";
 import { AIRLINE_GROUPS, selectedAirlineCodes } from "../src/airports.js";
 import { calculateMonthlyClimate, climateCacheKey, CLIMATE_TTL_MS, fetchMonthlyClimateBatch, mapWithLimit, readClimateCache, writeClimateCache } from "../src/climate.js";
+import { fetchPowerMonthlyClimateBatch, parsePowerMonthlyClimate, powerClimateCacheKey, POWER_CLIMATE_TTL_MS, readPowerClimateCache, writePowerClimateCache } from "../src/power-climate.js";
 import { deduplicateRoutes, durationForRoute, estimatedDurationMinutes, filterRoutesByAirline, filterRoutesByAirlineGroups, haversineDistanceKm, parseRoutesResponse } from "../src/flights.js";
+import { AIRPORT_NETWORK_CACHE_KEY, AIRPORT_NETWORK_TTL_MS, getAirportNetwork, normalizeAirportNetwork, readAirportNetworkCache, writeAirportNetworkCache } from "../src/network.js";
 import { defaultSearch, durationMatches, parseSearchParams, serializeSearch, temperatureMatches } from "../src/state.js";
 import type { Airport, FlightRoute } from "../src/types.js";
 
@@ -31,6 +33,43 @@ test("monthly climate averages daily values for the requested month", () => {
     temperature_2m_min: [10, 12, 15]
   }, 7);
   assert.deepEqual(result, { mean: 21, max: 26, min: 11, sampleCount: 2 });
+});
+test("NASA POWER monthly climate averages only the selected month across years", () => {
+  assert.deepEqual(parsePowerMonthlyClimate({ properties: { parameter: {
+    T2M: { "202101": -1, "202102": 2, "202202": 4, "202213": 8 },
+    T2M_MAX: { "202102": 10, "202202": 14 },
+    T2M_MIN: { "202102": -5, "202202": -3 }
+  } } }, 2), { mean: 3, max: 12, min: -4, sampleCount: 2 });
+});
+test("NASA POWER climate requests map airports and cache monthly values for 30 days", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    assert.equal(url.searchParams.get("parameters"), "T2M,T2M_MAX,T2M_MIN");
+    assert.equal(url.searchParams.get("start"), "2001");
+    assert.equal(url.searchParams.get("end"), "2025");
+    const offset = Number(url.searchParams.get("latitude")) > 48 ? 2 : 0;
+    return new Response(JSON.stringify({ properties: { parameter: {
+      T2M: { "202602": 8 + offset },
+      T2M_MAX: { "202602": 12 + offset },
+      T2M_MIN: { "202602": 4 + offset }
+    } } }), { status: 200 });
+  };
+  try {
+    const result = await fetchPowerMonthlyClimateBatch([bud, vie], 2);
+    assert.deepEqual(result.climates.get("BUD"), { mean: 8, max: 12, min: 4, sampleCount: 1 });
+    assert.deepEqual(result.climates.get("VIE"), { mean: 10, max: 14, min: 6, sampleCount: 1 });
+    assert.equal(result.failedCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const values = new Map<string, string>();
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) };
+  const key = powerClimateCacheKey("BUD", 2);
+  const climate = { mean: 8, max: 12, min: 4, sampleCount: 1 };
+  writePowerClimateCache(storage, key, climate, 5000);
+  assert.deepEqual(readPowerClimateCache(storage, key, 5000 + POWER_CLIMATE_TTL_MS - 1), climate);
+  assert.equal(readPowerClimateCache(storage, key, 5000 + POWER_CLIMATE_TTL_MS), null);
 });
 test("monthly climate ignores missing values and reports no result without samples", () => {
   assert.deepEqual(calculateMonthlyClimate({ time: ["2020-01-01", "2020-01-02"], temperature_2m_mean: [null, 8], temperature_2m_max: [null, 10], temperature_2m_min: [null, 2] }, 1), { mean: 8, max: 10, min: 2, sampleCount: 1 });
@@ -151,4 +190,41 @@ test("monthly airline results are cached in localStorage for 14 days", () => {
   assert.deepEqual(readFlightCache(storage, key, 5000 + FLIGHT_CACHE_TTL_MS - 1), data);
   assert.equal(readFlightCache(storage, key, 5000 + FLIGHT_CACHE_TTL_MS), null);
   assert.notEqual(flightCacheKey({ ...search, month: 9 }), key);
+});
+test("airport network is normalized and cached in localStorage for 30 days", () => {
+  const values = new Map<string, string>();
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) };
+  const data = normalizeAirportNetwork({ airports: [bud, vie, {}], routes: [{ from: "BUD", to: "VIE", airlines: ["W6", 1] }, {}] });
+  assert.deepEqual(data, { airports: [bud, vie], routes: [{ from: "BUD", to: "VIE", airlines: ["W6"] }] });
+  assert.ok(data);
+  writeAirportNetworkCache(storage, data, 5000);
+  assert.deepEqual(readAirportNetworkCache(storage, 5000 + AIRPORT_NETWORK_TTL_MS - 1), data);
+  assert.equal(readAirportNetworkCache(storage, 5000 + AIRPORT_NETWORK_TTL_MS), null);
+  assert.equal(values.has(AIRPORT_NETWORK_CACHE_KEY), true);
+});
+test("airport network falls back to public sources when the Worker endpoint is not deployed", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.startsWith("https://worker.test/")) return new Response("Not found", { status: 404 });
+    if (url.includes("airportmiles.com")) return new Response(JSON.stringify({ routes: [{ from: "BUD", to: "VIE", airlines: ["W6"] }] }), { status: 200 });
+    return new Response([
+      "id,ident,type,name,latitude_deg,longitude_deg,iso_country,municipality,scheduled_service,iata_code",
+      "1,LHBP,large_airport,Budapest,47.4369,19.2556,HU,Budapest,yes,BUD",
+      "2,LOWW,large_airport,Vienna,48.1103,16.5697,AT,Vienna,yes,VIE"
+    ].join("\n"), { status: 200 });
+  };
+  const values = new Map<string, string>();
+  const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) };
+  try {
+    const data = await getAirportNetwork("https://worker.test", storage);
+    assert.deepEqual(data.routes, [{ from: "BUD", to: "VIE", airlines: ["W6"] }]);
+    assert.equal(data.airports.find((airport) => airport.iata === "VIE")?.city, "Vienna");
+    assert.equal(calls.length, 3);
+    assert.ok(readAirportNetworkCache(storage));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

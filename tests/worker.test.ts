@@ -1,6 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { allowedOrigin, parseWorkerQuery } from "../worker/src/index.js";
+import worker, { allowedOrigin, buildAirportNetwork, parseWorkerQuery } from "../worker/src/index.js";
+
+test("airport network maps route codes to OurAirports coordinates and airlines", () => {
+  const csv = [
+    "ident,type,name,latitude_deg,longitude_deg,iso_country,municipality,scheduled_service,iata_code",
+    'KJFK,large_airport,"John F. Kennedy International, Terminal 4",40.6413,-73.7781,US,"New York, NY",yes,JFK',
+    "KLAX,large_airport,Los Angeles International,33.9416,-118.4085,US,Los Angeles,yes,LAX"
+  ].join("\n");
+  const data = buildAirportNetwork({ routes: [
+    { from: "JFK", to: "LAX", airlines: ["AA", "JetBlue"] },
+    { from: "JFK", to: "BAD", airlines: ["XX"] },
+    { from: "invalid", to: "LAX", airlines: null }
+  ] }, csv);
+  assert.deepEqual(data.routes, [{ from: "JFK", to: "LAX", airlines: ["AA", "JetBlue"] }]);
+  assert.equal(data.airports.find((airport) => airport.iata === "JFK")?.city, "New York, NY");
+  assert.equal(data.airports.find((airport) => airport.iata === "JFK")?.longitude, -73.7781);
+});
 
 test("Worker validates IATA, month, year and airline query parameters", () => {
   const now = new Date("2026-11-13T00:00:00Z");
@@ -32,4 +48,6 @@ test("Worker rejects arbitrary proxy paths and invalid parameters", async () => 
   assert.equal(notFound.status, 404);
   const badQuery = await worker.fetch(new Request("https://worker.test/api/destinations?from=bad&year=2027&month=1"), {});
   assert.equal(badQuery.status, 400);
+  const badNetworkRefresh = await worker.fetch(new Request("https://worker.test/api/airport-network?refresh=true"), {});
+  assert.equal(badNetworkRefresh.status, 400);
 });

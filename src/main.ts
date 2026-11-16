@@ -181,7 +181,7 @@ async function loadCandidateClimates(candidates: FlightCandidate[], searchState:
   const results: PromiseSettledResult<ClimateOutcome>[] = new Array(candidates.length);
   const missing = findMissingClimate(candidates, searchState, refresh, storage, results);
   const batches = chunkClimateCandidates(missing, 20);
-  const climateBatches = await mapWithLimit(batches, 2, async (batch) => fetchMonthlyClimateBatch(batch.map(({ candidate }) => candidate.airport), searchState.month, signal));
+  const climateBatches = await mapWithLimit(batches, 1, async (batch) => fetchMonthlyClimateBatch(batch.map(({ candidate }) => candidate.airport), searchState.month, signal));
   for (const [batchIndex, outcome] of climateBatches.entries()) {
     applyClimateBatch(batches[batchIndex]!, outcome, results, storage, searchState.month);
   }

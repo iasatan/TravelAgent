@@ -1,5 +1,7 @@
 const RYANAIR_FARES_URL = "https://www.ryanair.com/api/farfnd/3/oneWayFares";
 const RYANAIR_AIRPORTS_URL = "https://www.ryanair.com/api/views/locate/5/airports/en/active";
+const AIRPORTMILES_ROUTES_URL = "https://airportmiles.com/api/v1/routes.json";
+const OURAIRPORTS_CSV_URL = "https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv";
 const WIZZ_HOME_URL = "https://www.wizzair.com/en-gb";
 const WIZZ_MAP_CACHE_KEY = "https://travel-agent-cache.invalid/wizz/map";
 const WIZZ_BASE_CACHE_KEY = "https://travel-agent-cache.invalid/wizz/api-base";
@@ -175,6 +177,116 @@ interface NormalizedRoute {
 interface ProviderData {
   routes: NormalizedRoute[];
   airports: Map<string, AirlineAirport>;
+}
+
+export interface AirportNetworkRoute {
+  from: string;
+  to: string;
+  airlines: string[];
+}
+
+export interface AirportNetwork {
+  routes: AirportNetworkRoute[];
+  airports: AirlineAirport[];
+}
+
+function parseCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index]!;
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else quoted = !quoted;
+    } else if (character === "," && !quoted) {
+      fields.push(field);
+      field = "";
+    } else field += character;
+  }
+  fields.push(field);
+  return fields;
+}
+
+function normalizeAirportNetworkRoutes(routePayload: unknown): AirportNetworkRoute[] {
+  if (typeof routePayload !== "object" || routePayload === null || !Array.isArray((routePayload as { routes?: unknown }).routes)) {
+    throw new Error("AirportMiles route response is malformed.");
+  }
+  return ((routePayload as { routes: unknown[] }).routes).flatMap((value): AirportNetworkRoute[] => {
+    if (typeof value !== "object" || value === null) return [];
+    const row = value as Record<string, unknown>;
+    if (typeof row.from !== "string" || !IATA_PATTERN.test(row.from) || typeof row.to !== "string" || !IATA_PATTERN.test(row.to)) return [];
+    return [{
+      from: row.from,
+      to: row.to,
+      airlines: Array.isArray(row.airlines) ? row.airlines.filter((airline): airline is string => typeof airline === "string") : []
+    }];
+  });
+}
+
+function airportTypeRank(type: string): number {
+  if (type === "large_airport") return 3;
+  if (type === "medium_airport") return 2;
+  return 1;
+}
+
+function parseAirportCsvRecord(line: string, columns: Map<string, number>): { airport: AirlineAirport; rank: number } | null {
+  const row = parseCsvLine(line);
+  const value = (name: string) => row[columns.get(name) ?? -1] ?? "";
+  const iata = value("iata_code");
+  const latitude = Number(value("latitude_deg"));
+  const longitude = Number(value("longitude_deg"));
+  if (!IATA_PATTERN.test(iata) || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  const name = value("name") || iata;
+  return {
+    airport: {
+      iata,
+      name,
+      city: value("municipality") || name,
+      country: value("iso_country") || "Unknown",
+      latitude,
+      longitude,
+      timezone: "auto"
+    },
+    rank: airportTypeRank(value("type")) + (value("scheduled_service") === "yes" ? 10 : 0)
+  };
+}
+
+function findNetworkAirports(airportCsv: string, airportCodes: Set<string>): AirlineAirport[] {
+  const lines = airportCsv.split(/\r?\n/);
+  const header = parseCsvLine(lines.shift() ?? "");
+  const columns = new Map(header.map((name, index) => [name, index]));
+  const airportByIata = new Map<string, { airport: AirlineAirport; rank: number }>();
+  for (const line of lines) {
+    if (!line) continue;
+    const record = parseAirportCsvRecord(line, columns);
+    if (!record || !airportCodes.has(record.airport.iata)) continue;
+    const previous = airportByIata.get(record.airport.iata);
+    if (!previous || previous.rank < record.rank) airportByIata.set(record.airport.iata, record);
+  }
+  return [...airportByIata.values()].map(({ airport }) => airport);
+}
+
+export function buildAirportNetwork(routePayload: unknown, airportCsv: string): AirportNetwork {
+  const routes = normalizeAirportNetworkRoutes(routePayload);
+  const airportCodes = new Set(routes.flatMap((route) => [route.from, route.to]));
+  const airports = findNetworkAirports(airportCsv, airportCodes);
+  const availableCodes = new Set(airports.map((airport) => airport.iata));
+  return { airports, routes: routes.filter((route) => availableCodes.has(route.from) && availableCodes.has(route.to)) };
+}
+
+async function loadAirportNetwork(refresh: boolean): Promise<AirportNetwork> {
+  return cachedJson("https://travel-agent-cache.invalid/airport-network", REFERENCE_CACHE_SECONDS, refresh, async () => {
+    const [routesResponse, airportsResponse] = await Promise.all([
+      fetch(AIRPORTMILES_ROUTES_URL, { headers: { Accept: "application/json" } }),
+      fetch(OURAIRPORTS_CSV_URL, { headers: { Accept: "text/csv" } })
+    ]);
+    if (!routesResponse.ok) throw new Error(`AirportMiles routes returned ${routesResponse.status}.`);
+    if (!airportsResponse.ok) throw new Error(`OurAirports data returned ${airportsResponse.status}.`);
+    return buildAirportNetwork(await routesResponse.json(), await airportsResponse.text());
+  });
 }
 
 function normalizeRyanairAirports(payload: unknown): Map<string, AirlineAirport> {
@@ -363,20 +475,22 @@ async function loadFlightData(search: WorkerSearch, env: WorkerEnvironment): Pro
   return { routes, airports: [...airports.values()], providerErrors };
 }
 
-export default {
-  async fetch(request: Request, env: WorkerEnvironment): Promise<Response> {
-    const url = new URL(request.url);
-    const origin = request.headers.get("Origin");
-    const baseHeaders = responseHeaders(origin, env);
-    if (request.method === "OPTIONS") {
-      if (origin && !allowedOrigin(origin, env)) return jsonResponse({ error: "Origin is not allowed." }, 403, null, env);
-      return new Response(null, { status: 204, headers: baseHeaders });
-    }
-    if (request.method !== "GET" || url.pathname !== "/api/destinations") {
-      return jsonResponse({ error: "Not found." }, 404, origin, env);
-    }
-    if (origin && !allowedOrigin(origin, env)) return jsonResponse({ error: "Origin is not allowed." }, 403, null, env);
-    const search = parseWorkerQuery(url);
+async function handleAirportNetworkRequest(url: URL, origin: string | null, env: WorkerEnvironment): Promise<Response> {
+  const refreshValue = url.searchParams.get("refresh");
+  if (url.searchParams.size > Number(refreshValue !== null) || (refreshValue !== null && refreshValue !== "1")) {
+    return jsonResponse({ error: "Invalid refresh parameter." }, 400, origin, env);
+  }
+  try {
+    const data = await loadAirportNetwork(refreshValue === "1");
+    return jsonResponse(data, 200, origin, env, { "Cache-Control": `public, max-age=${REFERENCE_CACHE_SECONDS}` });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown airport network error.";
+    return jsonResponse({ error: `Airport network is temporarily unavailable (${message}).` }, 502, origin, env, { "Cache-Control": "no-store" });
+  }
+}
+
+async function handleDestinationRequest(url: URL, origin: string | null, env: WorkerEnvironment): Promise<Response> {
+  const search = parseWorkerQuery(url);
     if (!search) return jsonResponse({ error: "Invalid search parameters." }, 400, origin, env);
     const cache = workerCache();
     const cacheQuery = new URLSearchParams({ from: search.from, year: String(search.year), month: String(search.month), airlines: search.airlines.join(",") });
@@ -397,5 +511,20 @@ export default {
       }));
     }
     return jsonResponse(result, 200, origin, env, { "Cache-Control": `public, max-age=${RESULT_CACHE_SECONDS}` });
+}
+
+export default {
+  async fetch(request: Request, env: WorkerEnvironment): Promise<Response> {
+    const url = new URL(request.url);
+    const origin = request.headers.get("Origin");
+    if (request.method === "OPTIONS") {
+      if (origin && !allowedOrigin(origin, env)) return jsonResponse({ error: "Origin is not allowed." }, 403, null, env);
+      return new Response(null, { status: 204, headers: responseHeaders(origin, env) });
+    }
+    if (request.method !== "GET") return jsonResponse({ error: "Not found." }, 404, origin, env);
+    if (origin && !allowedOrigin(origin, env)) return jsonResponse({ error: "Origin is not allowed." }, 403, null, env);
+    if (url.pathname === "/api/airport-network") return handleAirportNetworkRequest(url, origin, env);
+    if (url.pathname === "/api/destinations") return handleDestinationRequest(url, origin, env);
+    return jsonResponse({ error: "Not found." }, 404, origin, env);
   }
 };

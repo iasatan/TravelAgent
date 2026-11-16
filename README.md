@@ -6,16 +6,16 @@ Find direct destinations matching a selected month's historical climate, airline
 
 ## Architecture
 
-- Static HTML5 and CSS, plus native TypeScript compiled to browser ES modules.
-- No frontend framework, bundler, CSS framework, or production npm dependency.
-- Cloudflare Worker calls the airlines' public website endpoints from a fixed upstream allowlist; no aviation API key is required.
-- Open-Meteo Archive API supplies historical daily temperatures.
-- Small bundled airport subset resolves coordinates and IANA time zones. It is based on OurAirports airport data, which is public domain; source: [OurAirports](https://ourairports.com/data/).
+- The airport-network page combines AirportMiles routes with OurAirports coordinates, then displays route carriers and monthly airline schedules.
+- Cloudflare Worker calls fixed airline, AirportMiles, and OurAirports endpoints; no aviation API key is required.
 
 ## Local development
+The flight search and airport-network page require a deployed or locally served Worker and its URL in the `travel-agent-api` meta tag in each HTML page. Climate data uses the public Open-Meteo endpoint directly from the browser.
 
+Open `airports.html` to browse direct destinations by departure airport. AirportMiles route and carrier data plus OurAirports airport coordinates are cached in browser localStorage for 30 days. For visible destinations, the page fetches NASA POWER monthly climatology and averages the selected month across 2001–2025; each airport/month result is cached for 30 days. It then queries the Worker for the selected month's Ryanair and Wizz Air schedules.
 Requirements: Node.js 22 or newer and npm.
 
+The Worker has no runtime dependency and exposes `GET /api/destinations` and `GET /api/airport-network`, plus CORS preflight. It validates search parameters and does not accept arbitrary upstream URLs. Flight results are cached in browser localStorage for 14 days; airline and airport-network reference data is cached at the Worker for 30 days. “Adatok frissítése” bypasses relevant caches. Historical climate is cached locally for 30 days.
 ```sh
 npm install
 npm test
@@ -44,7 +44,7 @@ Airport metadata is loaded from the airlines' endpoint responses and merged with
 
 ## Cloudflare Worker
 
-The Worker has no runtime dependency and exposes only `GET /api/destinations` plus CORS preflight. It validates IATA codes, month, year, and airline codes; it does not accept arbitrary upstream URLs. Flight results are cached in browser localStorage for 14 days; airline airport/network reference data is cached at the Worker for 30 days. “Adatok frissítése” bypasses both caches. Climate data remains cached locally for 30 days.
+The Worker has no runtime dependency and exposes `GET /api/destinations` and `GET /api/airport-network` plus CORS preflight. It validates search parameters; it does not accept arbitrary upstream URLs. Flight results are cached in browser localStorage for 14 days; airline airport/network reference data is cached at the Worker for 30 days. “Adatok frissítése” bypasses relevant caches. Historical climate data is cached for 30 days and current airport weather for one hour in localStorage.
 
 ```sh
 npx wrangler login
@@ -63,8 +63,8 @@ The Actions workflow in `.github/workflows/pages.yml` installs from the lockfile
 
 - Production runtime dependencies: **0**. TypeScript and `@types/node` are development dependencies.
 - The Worker calls only fixed Ryanair and Wizz Air hosts and never accepts arbitrary upstream URLs.
-- Flight localStorage TTL: 14 days. Worker airport/network cache: 30 days. Climate localStorage TTL: 30 days. Refresh bypasses caches.
+- Flight localStorage TTL: 14 days. Worker airport/network cache: 30 days. Historical climate localStorage TTL: 30 days.
 - The Worker CORS allowlist is configured in `worker/wrangler.jsonc`; localhost preview origins are allowed for development.
 - Airline website endpoints are undocumented and may change or block requests. The current implementation is best-effort and intended for personal, non-commercial use.
-- Climate values summarize 2015–2025 and can differ from future conditions.
+- Historical climate values summarize 2015–2025 and can differ from future conditions.
 - No airline or climate provider API key is embedded in the frontend.

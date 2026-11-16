@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f6f3">
+    <meta name="description" content="Közvetlen útvonalak és a kiválasztott hónap többéves klímaátlagai.">
+    <meta name="travel-agent-api" content="https://travel-agent-api.satanadam.workers.dev">
+    <title>Repülőterek | Travel Agent</title>
+    <link rel="stylesheet" href="./style.css">
+    <script type="module" src="./dist/src/airports-page.js"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="./" aria-label="Travel Agent kezdőlap">Travel Agent</a>
+      <p>Közvetlen útvonalak és a kiválasztott hónap többéves klímaátlagai.</p>
+      <nav class="site-nav" aria-label="Fő navigáció">
+        <a href="./">Keresés</a>
+        <a href="./airports.html" aria-current="page">Repülőterek</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="search-panel" aria-labelledby="airport-title">
+        <h1 id="airport-title">Repülőtér-hálózat</h1>
+        <div class="airport-controls">
+          <label class="field">
+            <span>Indulási repülőtér</span>
+            <select id="airport-origin" required></select>
+          </label>
+          <label class="field">
+            <span>Kiválasztott hónap</span>
+            <select id="airport-month" required></select>
+          </label>
+          <label class="field airport-filter">
+            <span>Úti cél szűrése</span>
+            <input id="airport-filter" type="search" placeholder="Város, ország vagy IATA-kód">
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="primary-button" id="airline-refresh" type="button">Légitársaságok lekérése</button>
+          <button class="secondary-button" id="network-refresh" type="button">Útvonalak frissítése</button>
+        </div>
+      </section>
+
+      <section class="results-section" aria-labelledby="route-list-title">
+        <div class="results-heading">
+          <div>
+            <h2 id="route-list-title">Közvetlen úti célok</h2>
+            <p id="airport-summary" aria-live="polite">Repülőtér-adatok betöltése…</p>
+          </div>
+        </div>
+        <output id="airport-status" class="status-message" aria-live="polite"></output>
+        <div class="airport-table-scroll">
+          <table class="airport-table">
+            <thead id="airport-table-head">
+              <tr>
+                <th scope="col" aria-sort="ascending"><button class="sort-button" type="button" data-sort="airport">Repülőtér <span aria-hidden="true">↑</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="country">Ország <span aria-hidden="true"></span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="routeAirlines">Útvonal légitársaságai <span aria-hidden="true"></span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="schedule">Havi menetrend <span aria-hidden="true"></span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="weather">Havi középhőmérséklet <span aria-hidden="true"></span></button></th>
+              </tr>
+            </thead>
+            <tbody id="airport-rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>A hőmérsékletek a kiválasztott hónap 2001–2025 közötti többéves átlagai, nem előrejelzések. A havi klímaadatokat 30 napig a böngésző helyi tárhelye tárolja. A légitársaságok menetrendje változhat.</p>
+    </footer>
+  </body>
+</html>
